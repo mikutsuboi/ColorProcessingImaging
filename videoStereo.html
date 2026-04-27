@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
+  <title>Real-time Stereo Video Processing with Three.js</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #aaaaaa;
+      font-family: Monospace;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Load Three.js using import maps -->
+  <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.184.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { GUI } from "three/addons/libs/lil-gui.module.min.js";
+    import WEBGL from "three/addons/capabilities/WebGL.js";
+    
+    // Import our shared image processing module
+    import { TextureProcessor, vertexShader } from "./VideoProcessor.js";
+
+    // Custom Fragment Shader for averaging the Top and Bottom halves of the stereo video
+    const fragmentShaderStereo = `
+    precision highp float;
+
+    // Input texture and parameters
+    uniform sampler2D imageTexture; // The stereo video frame
+    uniform int halfHeight;         // Half the height of the video
+
+    // Output color of the pixel
+    out vec4 out_FragColor;
+
+    void main(void) {
+      // Coordinates for the bottom half (Right image)
+      ivec2 coordBottom = ivec2(int(gl_FragCoord.x), int(gl_FragCoord.y));
+      
+      // Coordinates for the top half (Left image)
+      ivec2 coordTop = ivec2(int(gl_FragCoord.x), int(gl_FragCoord.y) + halfHeight);
+
+      // Fetch pixel colors
+      vec4 colorBottom = texelFetch(imageTexture, coordBottom, 0);
+      vec4 colorTop = texelFetch(imageTexture, coordTop, 0);
+      
+      // Average the left and right images
+      out_FragColor = (colorTop + colorBottom) * 0.5;
+    }
+    `;
+
+    // --- Main Application Variables ---
+    let camera, controls, scene, renderer;
+    let video, videoTexture;
+    let textureProcessor, processingMaterial;
+
+    // Initialize and start the application
+    init();
+    animate();
+
+    function init() {
+      // 1. Check for WebGL 2 support
+      if (WEBGL.isWebGL2Available() === false) {
+        document.body.appendChild(WEBGL.getWebGL2ErrorMessage());
+        return;
+      }
+
+      // 2. Setup Renderer
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("webgl2");
+      document.body.appendChild(canvas);
+
+      renderer = new THREE.WebGLRenderer({ canvas: canvas, context: context });
+      renderer.autoClear = false;
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      // 3. Setup Main Scene and Camera
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.001, 10);
+      camera.position.z = 1.0;
+
+      // 4. Setup Controls
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.minDistance = 0.005;
+      controls.maxDistance = 2.0;
+      controls.enableRotate = true;
+
+      // 5. Setup Video Element
+      video = document.createElement("video");
+      video.src = "video_1080p_30fps_stereo.mp4";
+      video.load();
+      video.muted = true; // Video must be muted to autoplay in many browsers
+      video.loop = true;
+
+      // Wait for video data to load before creating textures and materials
+      video.onloadeddata = () => {
+        // Create a texture that updates with the video playback
+        videoTexture = new THREE.VideoTexture(video);
+        videoTexture.minFilter = THREE.NearestFilter;
+        videoTexture.magFilter = THREE.NearestFilter;
+        videoTexture.generateMipmaps = false;
+        videoTexture.format = THREE.RGBAFormat;
+
+        const halfHeight = Math.floor(video.videoHeight / 2);
+
+        // Create our custom shader material for stereo processing
+        processingMaterial = new THREE.RawShaderMaterial({
+          uniforms: {
+            imageTexture: { value: videoTexture },
+            halfHeight: { value: halfHeight },
+          },
+          vertexShader: vertexShader,
+          fragmentShader: fragmentShaderStereo,
+          glslVersion: THREE.GLSL3,
+        });
+
+        // Initialize our off-screen processor. Output size is videoWidth x halfHeight
+        textureProcessor = new TextureProcessor(
+          video.videoWidth,
+          halfHeight,
+          processingMaterial
+        );
+
+        // Aspect ratios
+        const processedAspectRatio = halfHeight / video.videoWidth;
+        const originalAspectRatio = video.videoHeight / video.videoWidth;
+
+        // Create the First Plane (showing processed averaged video)
+        const processedGeometry = new THREE.PlaneGeometry(1, processedAspectRatio);
+        const processedMaterial = new THREE.MeshBasicMaterial({
+          map: textureProcessor.renderTarget.texture, // Use processed texture
+          side: THREE.DoubleSide,
+        });
+        const processedPlane = new THREE.Mesh(processedGeometry, processedMaterial);
+        processedPlane.position.z = 0.15; // Move slightly forward
+        scene.add(processedPlane);
+
+        // Create the Second Plane (showing original stereo video)
+        const originalGeometry = new THREE.PlaneGeometry(1, originalAspectRatio);
+        const originalMaterial = new THREE.MeshBasicMaterial({
+          map: videoTexture, // Use raw video texture
+          side: THREE.DoubleSide,
+        });
+        const originalPlane = new THREE.Mesh(originalGeometry, originalMaterial);
+        originalPlane.position.z = -0.15; // Move slightly backward
+        scene.add(originalPlane);
+
+        // Setup GUI interactions
+        setupGUI();
+
+        // Start video playback
+        video.play();
+      };
+
+      // Handle window resizing
+      window.addEventListener("resize", onWindowResize);
+    }
+
+    function setupGUI() {
+      const gui = new GUI();
+      
+      // Video playback controls
+      const videoControls = {
+        togglePlayPause: () => {
+          if (video.paused) video.play();
+          else video.pause();
+        },
+        skipForward: () => {
+          video.currentTime += 10;
+        },
+      };
+
+      gui.add(videoControls, "togglePlayPause").name("Play / Pause");
+      gui.add(videoControls, "skipForward").name("Skip +10s");
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      
+      // 1. Clear the screen
+      renderer.clear();
+
+      // 2. Process the current video frame (if ready)
+      if (textureProcessor) {
+        textureProcessor.process(renderer);
+      }
+
+      // 3. Render the main 3D scene (containing our two planes)
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
+</html>
