@@ -1,5 +1,5 @@
 <!-- 
-** Task 2: Color Filtered Anaglyph **
+** Task 2-1: Color Filtered Anaglyph **
 5 Method Type Parameters Passes
 |      Method      |  Color   | Rivalry | Ghosting |
 | True Anaglyph    |   None   |   None  |   Low    |
@@ -62,40 +62,80 @@
     out vec4 out_FragColor;
 
     vec4 TrueAnaglyph (vec4 colorLeft, vec4 colorRight) {
-      mat3 m_l = mat3(0.299, 0.587, 0.114, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-      mat3 m_r = mat3(0.0, 0.0, 0.0, 0.299, 0.587, 0.114, 0.299, 0.587, 0.114);
+      mat3 m_l = mat3(
+        0.299, 0.0, 0.0,
+        0.587, 0.0, 0.0, 
+        0.114, 0.0, 0.0
+      );
+      mat3 m_r = mat3(
+        0.0, 0.0, 0.299, 
+        0.0, 0.0, 0.587, 
+        0.0, 0.0, 0.114
+      );
       vec3 left = m_l * colorLeft.rgb;
       vec3 right = m_r * colorRight.rgb;
       return vec4(left + right, 1.0);
     }
 
     vec4 GrayAnaglyph (vec4 colorLeft, vec4 colorRight) {
-      mat3 m_l = mat3(0.299, 0.587, 0.114, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-      mat3 m_r = mat3(0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+      mat3 m_l = mat3(
+        0.299, 0.0, 0.0,
+        0.587, 0.0, 0.0, 
+        0.114, 0.0, 0.0
+      );
+      mat3 m_r = mat3(
+        0.0, 0.299, 0.299, 
+        0.0, 0.587, 0.587, 
+        0.0, 0.114, 0.114
+      );
       vec3 left = m_l * colorLeft.rgb;
       vec3 right = m_r * colorRight.rgb;
       return vec4(left + right, 1.0);
     }
 
     vec4 ColorAnaglyph (vec4 colorLeft, vec4 colorRight) {
-      mat3 m_l = mat3(1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-      mat3 m_r = mat3(0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+      mat3 m_l = mat3(
+        1.0, 0.0, 0.0, 
+        0.0, 0.0, 0.0, 
+        0.0, 0.0, 0.0
+      );
+      mat3 m_r = mat3(
+        0.0, 0.0, 0.0, 
+        0.0, 1.0, 0.0, 
+        0.0, 0.0, 1.0
+      );
       vec3 left = m_l * colorLeft.rgb;
       vec3 right = m_r * colorRight.rgb;
       return vec4(left + right, 1.0);
     }
 
     vec4 HalfColorAnaglyph (vec4 colorLeft, vec4 colorRight) {
-      mat3 m_l = mat3(0.299, 0.587, 0.114, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
-      mat3 m_r = mat3(0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
+      mat3 m_l = mat3(
+        0.299, 0.0, 0.0, 
+        0.587, 0.0, 0.0, 
+        0.114, 0.0, 0.0
+      );
+      mat3 m_r = mat3(
+        0.0, 0.0, 0.0, 
+        0.0, 1.0, 0.0, 
+        0.0, 0.0, 1.0
+      );
       vec3 left = m_l * colorLeft.rgb;
       vec3 right = m_r * colorRight.rgb;
       return vec4(left + right, 1.0);
     }
 
     vec4 OptimizedAnaglyph (vec4 colorLeft, vec4 colorRight) {
-      mat3 m_l = mat3(0.437, 0.449, 0.164, -0.062, -0.062, -0.024, -0.048, -0.050, -0.017);
-      mat3 m_r = mat3(-0.011, -0.032, -0.007, 0.377, 0.761, 0.009, -0.026, -0.093, 1.234);
+      mat3 m_l = mat3(
+        0.437, -0.062, -0.048, 
+        0.449, -0.062, -0.050,
+        0.164, -0.024, -0.017
+      );
+      mat3 m_r = mat3(
+        -0.011, 0.377, -0.026,
+        -0.032, 0.761, -0.093,
+        -0.007, 0.009, 1.234
+      );
       vec3 left = m_l * colorLeft.rgb;
       vec3 right = m_r * colorRight.rgb;
       return vec4(left + right, 1.0);
