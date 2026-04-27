@@ -1,9 +1,18 @@
+<!-- 
+** Task 1: Image Processing Methods **
+4 Method Type Parameters Passes
+- Gaussian convolution Linear, 2D kernelSize, σ 1
+- Laplacian convolution Linear, 2D Display mode 1
+- Separable Gaussian Linear, 1D×2 kernelSize, σ 2
+- Median denoising Non-linear kernelSize 1
+-->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
-  <title>Real-time Video Processing with Three.js</title>
+  <title>Task 1: Image Processing Methods</title>
   <style>
     body {
       margin: 0;
@@ -36,7 +45,15 @@
     import WEBGL from "three/addons/capabilities/WebGL.js";
     
     // Import our shared image processing module
-    import { TextureProcessor, vertexShader, fragmentShader } from "./VideoProcessor.js";
+    import { 
+        TextureProcessor, 
+        vertexShader, 
+        boxFragmentShader,
+        GaussianFragmentShader, 
+        LaplacianFragmentShader, 
+        SeparatableFragmentShader,
+        MedianFragmentShader
+    } from "./VideoProcessor.js";
 
     // --- Main Application Variables ---
     let camera, controls, scene, renderer;
@@ -94,7 +111,16 @@
         // Create our custom shader material using imported shaders
         processingMaterial = new THREE.RawShaderMaterial({
           uniforms: {
+            // box fragmentShader
             blurRadius: { value: 5 },
+            // gaussian and separatable fragmentShader
+            radius : { value: 3 },
+            sigma : { value: 1.0 },
+            // laplacian fragmentShader
+            displayMode: { value: false },
+            // separable fragmentShader
+            horizontal: { value: true },
+            // for all fragmentShaders
             colorScaleR: { value: 1.0 },
             colorScaleG: { value: 1.0 },
             colorScaleB: { value: 1.0 },
@@ -102,7 +128,7 @@
             imageTexture: { value: videoTexture },
           },
           vertexShader: vertexShader,
-          fragmentShader: fragmentShader,
+          fragmentShader: GaussianFragmentShader,
           glslVersion: THREE.GLSL3,
         });
 
@@ -136,7 +162,8 @@
         scene.add(originalPlane);
 
         // Setup GUI interactions
-        setupGUI();
+        let gui;
+        setupGUI(gui);
 
         // Start video playback
         video.play();
@@ -146,29 +173,67 @@
       window.addEventListener("resize", onWindowResize);
     }
 
-    function setupGUI() {
-      const gui = new GUI();
-      
-      // Controls for shader uniforms
-      gui.add(processingMaterial.uniforms.colorScaleR, "value", 0, 1).name("Red Channel");
-      gui.add(processingMaterial.uniforms.colorScaleG, "value", 0, 1).name("Green Channel");
-      gui.add(processingMaterial.uniforms.colorScaleB, "value", 0, 1).name("Blue Channel");
-      gui.add(processingMaterial.uniforms.blurRadius, "value", 1, 21, 1).name("Blur Radius");
-      gui.add(processingMaterial.uniforms.invertColors, "value").name("Invert Colors");
+    function setupGUI(gui) {
+    if (gui) gui.destroy();
+    gui = new GUI();
 
-      // Video playback controls
-      const videoControls = {
-        togglePlayPause: () => {
-          if (video.paused) video.play();
-          else video.pause();
-        },
-        skipForward: () => {
-          video.currentTime += 10;
-        },
-      };
+    const params = {
+        method: "Gaussian",
+    };
 
-      gui.add(videoControls, "togglePlayPause").name("Play / Pause");
-      gui.add(videoControls, "skipForward").name("Skip +10s");
+    const shaders = {
+        "Box": boxFragmentShader,
+        "Gaussian": GaussianFragmentShader,
+        "Laplacian": LaplacianFragmentShader,
+        "Separable": SeparatableFragmentShader,
+        "Median": MedianFragmentShader
+    };
+
+    gui.add(params, "method", Object.keys(shaders)).name("Method").onChange((value) => {
+        processingMaterial.fragmentShader = shaders[value];
+        processingMaterial.needsUpdate = true;
+        updateMethodGUI(value);
+    });
+
+    let methodFolder = gui.addFolder("Method Parameters");
+
+    function updateMethodGUI(method) {
+        methodFolder.destroy();
+        methodFolder = gui.addFolder("Method Parameters");
+
+        const uniforms = processingMaterial.uniforms;
+
+        switch (method) {
+            case "Box":
+                break;
+            case "Gaussian":
+                methodFolder.add(uniforms.radius, "value", 1, 50, 1).name("Kernel Size");
+                methodFolder.add(uniforms.sigma, "value", 0.1, 100.0).name("Sigma (σ)");
+                break;
+
+            case "Laplacian":
+                methodFolder.add(uniforms.displayMode, "value").name("Normalization");
+                break;
+
+            case "Separable":
+                methodFolder.add(uniforms.radius, "value", 1, 50, 1).name("Kernel Size");
+                methodFolder.add(uniforms.sigma, "value", 0.1, 100.0).name("Sigma (σ)");
+                methodFolder.add(uniforms.horizontal, "value").name("Horizontal Pass");
+                break;
+
+            case "Median":
+                break;
+        }
+        methodFolder.open();
+    }
+
+    const commonFolder = gui.addFolder("Common Settings");
+    commonFolder.add(processingMaterial.uniforms.colorScaleR, "value", 0, 1).name("Red");
+    commonFolder.add(processingMaterial.uniforms.colorScaleG, "value", 0, 1).name("Green");
+    commonFolder.add(processingMaterial.uniforms.colorScaleB, "value", 0, 1).name("Blue");
+    commonFolder.add(processingMaterial.uniforms.invertColors, "value").name("Invert");
+
+    updateMethodGUI(params.method);
     }
 
     function onWindowResize() {

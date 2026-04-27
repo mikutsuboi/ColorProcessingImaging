@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
+  <title>Real-time Video Processing with Three.js</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: #aaaaaa;
+      font-family: Monospace;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- Load Three.js using import maps -->
+  <script async src="https://unpkg.com/es-module-shims@1.3.6/dist/es-module-shims.js"></script>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.184.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.184.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    import { GUI } from "three/addons/libs/lil-gui.module.min.js";
+    import WEBGL from "three/addons/capabilities/WebGL.js";
+    
+    // Import our shared image processing module
+    import { TextureProcessor, vertexShader, fragmentShader } from "./VideoProcessor.js";
+
+    // --- Main Application Variables ---
+    let camera, controls, scene, renderer;
+    let video, videoTexture;
+    let textureProcessor, processingMaterial;
+
+    // Initialize and start the application
+    init();
+    animate();
+
+    function init() {
+      // 1. Check for WebGL 2 support (needed for our shader features like texelFetch)
+      if (WEBGL.isWebGL2Available() === false) {
+        document.body.appendChild(WEBGL.getWebGL2ErrorMessage());
+        return;
+      }
+
+      // 2. Setup Renderer
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("webgl2");
+      document.body.appendChild(canvas);
+
+      renderer = new THREE.WebGLRenderer({ canvas: canvas, context: context });
+      renderer.autoClear = false;
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+
+      // 3. Setup Main Scene and Camera
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.001, 10);
+      camera.position.z = 1.0;
+
+      // 4. Setup Controls (allows user to rotate/zoom the camera)
+      controls = new OrbitControls(camera, renderer.domElement);
+      controls.minDistance = 0.005;
+      controls.maxDistance = 2.0;
+      controls.enableRotate = true;
+
+      // 5. Setup Video Element
+      video = document.createElement("video");
+      video.src = "video.mp4";
+      video.load();
+      video.muted = true; // Video must be muted to autoplay in many browsers
+      video.loop = true;
+
+      // Wait for video data to load before creating textures and materials
+      video.onloadeddata = () => {
+        // Create a texture that updates with the video playback
+        videoTexture = new THREE.VideoTexture(video);
+        videoTexture.minFilter = THREE.NearestFilter;
+        videoTexture.magFilter = THREE.NearestFilter;
+        videoTexture.generateMipmaps = false;
+        videoTexture.format = THREE.RGBAFormat;
+
+        // Create our custom shader material using imported shaders
+        processingMaterial = new THREE.RawShaderMaterial({
+          uniforms: {
+            blurRadius: { value: 5 },
+            colorScaleR: { value: 1.0 },
+            colorScaleG: { value: 1.0 },
+            colorScaleB: { value: 1.0 },
+            invertColors: { value: false },
+            imageTexture: { value: videoTexture },
+          },
+          vertexShader: vertexShader,
+          fragmentShader: fragmentShader, // make here to be able to switch with GUI (default: Gaussian)
+          glslVersion: THREE.GLSL3,
+        });
+
+        // Initialize our off-screen processor
+        textureProcessor = new TextureProcessor(
+          video.videoWidth,
+          video.videoHeight,
+          processingMaterial
+        );
+
+        const aspectRatio = video.videoHeight / video.videoWidth;
+
+        // Create the First Plane (showing processed video)
+        const processedGeometry = new THREE.PlaneGeometry(1, aspectRatio);
+        const processedMaterial = new THREE.MeshBasicMaterial({
+          map: textureProcessor.renderTarget.texture, // Use processed texture
+          side: THREE.DoubleSide,
+        });
+        const processedPlane = new THREE.Mesh(processedGeometry, processedMaterial);
+        processedPlane.position.z = 0.15; // Move slightly forward
+        scene.add(processedPlane);
+
+        // Create the Second Plane (showing original video)
+        const originalGeometry = new THREE.PlaneGeometry(1, aspectRatio);
+        const originalMaterial = new THREE.MeshBasicMaterial({
+          map: videoTexture, // Use raw video texture
+          side: THREE.DoubleSide,
+        });
+        const originalPlane = new THREE.Mesh(originalGeometry, originalMaterial);
+        originalPlane.position.z = -0.15; // Move slightly backward
+        scene.add(originalPlane);
+
+        // Setup GUI interactions
+        setupGUI();
+
+        // Start video playback
+        video.play();
+      };
+
+      // Handle window resizing
+      window.addEventListener("resize", onWindowResize);
+    }
+
+    function setupGUI() {
+      const gui = new GUI();
+      
+      // Controls for shader uniforms
+      gui.add(processingMaterial.uniforms.colorScaleR, "value", 0, 1).name("Red Channel");
+      gui.add(processingMaterial.uniforms.colorScaleG, "value", 0, 1).name("Green Channel");
+      gui.add(processingMaterial.uniforms.colorScaleB, "value", 0, 1).name("Blue Channel");
+      gui.add(processingMaterial.uniforms.blurRadius, "value", 1, 21, 1).name("Blur Radius");
+      gui.add(processingMaterial.uniforms.invertColors, "value").name("Invert Colors");
+
+      // Video playback controls
+      const videoControls = {
+        togglePlayPause: () => {
+          if (video.paused) video.play();
+          else video.pause();
+        },
+        skipForward: () => {
+          video.currentTime += 10;
+        },
+      };
+
+      gui.add(videoControls, "togglePlayPause").name("Play / Pause");
+      gui.add(videoControls, "skipForward").name("Skip +10s");
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    function animate() {
+      requestAnimationFrame(animate);
+      controls.update();
+      
+      // 1. Clear the screen
+      renderer.clear();
+
+      // 2. Process the current video frame (if ready)
+      if (textureProcessor) {
+        textureProcessor.process(renderer);
+      }
+
+      // 3. Render the main 3D scene (containing our two planes)
+      renderer.render(scene, camera);
+    }
+  </script>
+</body>
+</html>
