@@ -1,10 +1,13 @@
 <!-- 
-** Task 1: Image Processing Methods **
-4 Method Type Parameters Passes
-- Gaussian convolution Linear, 2D kernelSize, σ 1
-- Laplacian convolution Linear, 2D Display mode 1
-- Separable Gaussian Linear, 1D×2 kernelSize, σ 2
-- Median denoising Non-linear kernelSize 1
+** Task 2-2: Integration with Task 1 **
+1. Stereo frame (top and bottom)
+- put the stereo video frame into a texture
+- locate to the back so that we cannot see it
+2.Split into L/R (locate two videos to left and right)
+- use a shader to split the stereo video into left and right images
+3. Task 1: Processing
+4. Task 2: Anaglyph
+5. Display
 -->
 
 <!DOCTYPE html>
@@ -12,7 +15,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
-  <title>Task 1: Image Processing Methods</title>
+  <title>Task 2-2: Integration with Task 1</title>
   <style>
     body {
       margin: 0;
@@ -46,26 +49,22 @@
     
     // Import our shared image processing module
     import { 
-        TextureProcessor, 
-        vertexShader, 
-        boxFragmentShader,
-        GaussianFragmentShader, 
-        LaplacianFragmentShader, 
-        SeparatableFragmentShader,
-        MedianFragmentShader
-    } from "./ImageProcessing.js";
+      TextureProcessor, 
+      vertexShader, 
+      MixFragmentShader
+    } from "./Anaglyph-ImgProcessing.js";
 
     // --- Main Application Variables ---
     let camera, controls, scene, renderer;
     let video, videoTexture;
-    let textureProcessor, processingMaterial;
+    let textureProcessor, processingMaterial, anaglyphMaterial;
 
     // Initialize and start the application
     init();
     animate();
 
     function init() {
-      // 1. Check for WebGL 2 support (needed for our shader features like texelFetch)
+      // 1. Check for WebGL 2 support
       if (WEBGL.isWebGL2Available() === false) {
         document.body.appendChild(WEBGL.getWebGL2ErrorMessage());
         return;
@@ -86,7 +85,7 @@
       camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.001, 10);
       camera.position.z = 1.0;
 
-      // 4. Setup Controls (allows user to rotate/zoom the camera)
+      // 4. Setup Controls
       controls = new OrbitControls(camera, renderer.domElement);
       controls.minDistance = 0.005;
       controls.maxDistance = 2.0;
@@ -94,7 +93,7 @@
 
       // 5. Setup Video Element
       video = document.createElement("video");
-      video.src = "video.mp4";
+      video.src = "video_1080p_30fps_stereo.mp4";
       video.load();
       video.muted = true; // Video must be muted to autoplay in many browsers
       video.loop = true;
@@ -108,41 +107,63 @@
         videoTexture.generateMipmaps = false;
         videoTexture.format = THREE.RGBAFormat;
 
-        // Create our custom shader material using imported shaders
+        const halfHeight = Math.floor(video.videoHeight / 2);
+
+        // Create our custom shader material for stereo processing
         processingMaterial = new THREE.RawShaderMaterial({
           uniforms: {
-            // box fragmentShader
-            blurRadius: { value: 5 },
-            // gaussian and separatable fragmentShader
-            radius : { value: 3 },
-            sigma : { value: 1.0 },
-            // laplacian fragmentShader
-            displayMode: { value: false },
-            // separable fragmentShader
-            horizontal: { value: true },
-            // for all fragmentShaders
-            colorScaleR: { value: 1.0 },
-            colorScaleG: { value: 1.0 },
-            colorScaleB: { value: 1.0 },
-            invertColors: { value: false },
             imageTexture: { value: videoTexture },
+            halfHeight: { value: halfHeight },
+            // for video processing parts
+            videoProcessMode: { value: 0 }, // 0: none, 1: box, 2: gaussian, 3: laplacian, 4: separable, 5: median
+              // box fragmentShader
+              blurRadius: { value: 5 },
+              // gaussian and separatable fragmentShader
+              radius : { value: 3 },
+              sigma : { value: 1.0 },
+              // laplacian fragmentShader
+              displayMode: { value: false },
+              // separable fragmentShader
+              horizontal: { value: true },
+              // for all fragmentShaders
+              colorScaleR: { value: 1.0 },
+              colorScaleG: { value: 1.0 },
+              colorScaleB: { value: 1.0 },
+              invertColors: { value: false },
+              imageTexture: { value: videoTexture },
+
+              // anaglyph mode
+              anaglyphMode: { value: 0 }, // 0: true, 1: gray, 2: color, 3: half-color, 4: optimized
           },
           vertexShader: vertexShader,
-          fragmentShader: GaussianFragmentShader,
+          fragmentShader: MixFragmentShader,
           glslVersion: THREE.GLSL3,
         });
 
-        // Initialize our off-screen processor
+        anaglyphMaterial = new THREE.RawShaderMaterial({
+          uniforms: {
+            imageTexture: { value: videoTexture },
+            halfHeight: { value: halfHeight },
+            anaglyphMode: { value: 0 }, // 0: true, 1: gray, 2: color, 3: half-color, 4: optimized
+          },
+          vertexShader: vertexShader,
+          fragmentShader: MixFragmentShader,
+          glslVersion: THREE.GLSL3,
+        });
+
+        // Initialize our off-screen processor. Output size is videoWidth x halfHeight
         textureProcessor = new TextureProcessor(
           video.videoWidth,
-          video.videoHeight,
+          halfHeight,
           processingMaterial
         );
 
-        const aspectRatio = video.videoHeight / video.videoWidth;
+        // Aspect ratios
+        const processedAspectRatio = halfHeight / video.videoWidth;
+        const originalAspectRatio = video.videoHeight / video.videoWidth;
 
-        // Create the First Plane (showing processed video)
-        const processedGeometry = new THREE.PlaneGeometry(1, aspectRatio);
+        // Create the First Plane (showing processed averaged video)
+        const processedGeometry = new THREE.PlaneGeometry(1, processedAspectRatio);
         const processedMaterial = new THREE.MeshBasicMaterial({
           map: textureProcessor.renderTarget.texture, // Use processed texture
           side: THREE.DoubleSide,
@@ -151,8 +172,8 @@
         processedPlane.position.z = 0.15; // Move slightly forward
         scene.add(processedPlane);
 
-        // Create the Second Plane (showing original video)
-        const originalGeometry = new THREE.PlaneGeometry(1, aspectRatio);
+        // Create the Second Plane (showing original stereo video)
+        const originalGeometry = new THREE.PlaneGeometry(1, originalAspectRatio);
         const originalMaterial = new THREE.MeshBasicMaterial({
           map: videoTexture, // Use raw video texture
           side: THREE.DoubleSide,
@@ -162,8 +183,7 @@
         scene.add(originalPlane);
 
         // Setup GUI interactions
-        let gui;
-        setupGUI(gui);
+        setupGUI();
 
         // Start video playback
         video.play();
@@ -173,41 +193,66 @@
       window.addEventListener("resize", onWindowResize);
     }
 
-    function setupGUI(gui) {
-    if (gui) gui.destroy();
-    gui = new GUI();
+    function setupGUI() {
+      const gui = new GUI();
+      
+      // Video playback controls
+      const videoControls = {
+        togglePlayPause: () => {
+          if (video.paused) video.play();
+          else video.pause();
+        },
+        skipForward: () => {
+          video.currentTime += 10;
+        },
+      };
+      gui.add(videoControls, "togglePlayPause").name("Play / Pause");
+      gui.add(videoControls, "skipForward").name("Skip +10s");
 
-    
-    const params = {
-        method: "Gaussian",
-    };
+      const params = {
+        method: "None",
+      };
 
-    const shaders = {
-        "Box": boxFragmentShader,
-        "Gaussian": GaussianFragmentShader,
-        "Laplacian": LaplacianFragmentShader,
-        "Separable": SeparatableFragmentShader,
-        "Median": MedianFragmentShader
-    };
+      const imgProcessing = {
+        "None": 0, 
+        "Box": 1, 
+        "Gaussian": 2,
+        "Laplacian": 3, 
+        "Separable": 4,
+        "Median": 5
+      };
 
-    gui.add(params, "method", Object.keys(shaders)).name("Method").onChange((value) => {
-        processingMaterial.fragmentShader = shaders[value];
-        processingMaterial.needsUpdate = true;
-        updateMethodGUI(value);
-    });
+      gui.add(params, "method", imgProcessing).name("Video Processing Mode").onChange((value) => {
+          processingMaterial.uniforms.videoProcessMode.value = value; 
+          const selectedKey = Object.keys(imgProcessing).find(key => imgProcessing[key] === value);
+          updateMethodGUI(selectedKey);
+      });
 
-    let methodFolder = gui.addFolder("Method Parameters");
+      gui.add(processingMaterial.uniforms.anaglyphMode, "value", {
+        "True Anaglyph": 0, 
+        "Gray Anaglyph": 1, 
+        "Color Anaglyph": 2,
+        "Half-Color Anaglyph": 3, 
+        "Optimized Anaglyph": 4 
+      }).name("Anaglyph Mode"); 
 
-    function updateMethodGUI(method) {
+      // Filter parameters (collapsed folder)
+      // show the parapeters depends on the @rpcessingMaterial.uniforms.videoProcessMode.value
+      let methodFolder = gui.addFolder("Image Processing Parameters");
+      function updateMethodGUI(method) {
         methodFolder.destroy();
-        methodFolder = gui.addFolder("Method Parameters");
+        methodFolder = gui.addFolder("Image Processing Parameters");
 
         const uniforms = processingMaterial.uniforms;
 
         switch (method) {
+            case "None":
+                break;
+
             case "Box":
                 methodFolder.add(uniforms.blurRadius, "value", 1, 20, 1).name("Blur Radius");
                 break;
+
             case "Gaussian":
                 methodFolder.add(uniforms.radius, "value", 1, 50, 1).name("Kernel Size");
                 methodFolder.add(uniforms.sigma, "value", 0.1, 100.0).name("Sigma (σ)");
@@ -226,16 +271,15 @@
             case "Median":
                 break;
         }
-        methodFolder.open();
-    }
+      }
 
-    const commonFolder = gui.addFolder("Common Settings");
-    commonFolder.add(processingMaterial.uniforms.colorScaleR, "value", 0, 1).name("Red");
-    commonFolder.add(processingMaterial.uniforms.colorScaleG, "value", 0, 1).name("Green");
-    commonFolder.add(processingMaterial.uniforms.colorScaleB, "value", 0, 1).name("Blue");
-    commonFolder.add(processingMaterial.uniforms.invertColors, "value").name("Invert");
-
-    updateMethodGUI(params.method);
+      // Color controls (collapsed folder)
+      const colorFolder = gui.addFolder("Color Control Parameters");
+      colorFolder.add(processingMaterial.uniforms.colorScaleR, "value", 0, 2, 0.01).name("Scale R");
+      colorFolder.add(processingMaterial.uniforms.colorScaleG, "value", 0, 2, 0.01).name("Scale G");
+      colorFolder.add(processingMaterial.uniforms.colorScaleB, "value", 0, 2, 0.01).name("Scale B");
+      colorFolder.add(processingMaterial.uniforms.invertColors,"value").name("Invert Colors");
+      colorFolder.close();
     }
 
     function onWindowResize() {

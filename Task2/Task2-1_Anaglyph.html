@@ -47,7 +47,7 @@
     import WEBGL from "three/addons/capabilities/WebGL.js";
     
     // Import our shared image processing module
-    import { TextureProcessor, vertexShader } from "./Anaglyph.js";
+    import { TextureProcessor, vertexShader } from "./Anaglyph-ImgProcessing.js";
 
     // Custom Fragment Shader for averaging the Top and Bottom halves of the stereo video
     const fragmentShaderStereo = `
@@ -56,7 +56,7 @@
     // Input texture and parameters
     uniform sampler2D imageTexture; // The stereo video frame
     uniform int halfHeight;         // Half the height of the video
-    uniform int anaglyphMode;      // 0 = True, 1 = Gray, 2 = Color, 3 = Half-Color
+    uniform int anaglyphMode;      // 0 = True, 1 = Gray, 2 = Color, 3 = Half-Color, 4 = Optimized
 
     // Output color of the pixel
     out vec4 out_FragColor;
